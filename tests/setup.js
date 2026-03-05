@@ -1,36 +1,36 @@
-import dotenv from "dotenv";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
-// Ensure test environment variables are loaded before route handlers execute.
+// Tell app.js to load .env.test instead of .env when it calls dotenv.config().
+// This runs before any beforeAll hooks, so the env is correct for the whole suite.
 process.env.NODE_ENV = "test";
-dotenv.config({ path: ".env.test" });
 
 let mongoServer;
 
 beforeAll(async () => {
-	// Create ephemeral MongoDB instance so tests run without external DB service.
-	mongoServer = await MongoMemoryServer.create();
-	const inMemoryMongoUri = mongoServer.getUri();
-
-	// Ensure app/middleware reads the same URI during test execution.
-	process.env.MONGO_URI = inMemoryMongoUri;
-
-	// Open a single MongoDB connection for the full test suite.
-	await mongoose.connect(inMemoryMongoUri);
-});
-
-afterEach(async () => {
-	// Clear all collections so tests remain isolated and deterministic.
-	const { collections } = mongoose.connection;
-	const deletePromises = Object.values(collections).map((collection) => collection.deleteMany({}));
-	await Promise.all(deletePromises);
-});
+  if (mongoose.connection.readyState === 0) {
+    mongoServer = await MongoMemoryServer.create();
+    const inMemoryMongoUri = mongoServer.getUri();
+    
+    await mongoose.connect(inMemoryMongoUri, {
+      family: 4
+    });
+  }
+}, 30000);
 
 afterAll(async () => {
-	// Close DB connection and shut down in-memory server to prevent open handles.
-	await mongoose.connection.close();
-	if (mongoServer) {
-		await mongoServer.stop();
-	}
-});
+  // Clear all collections BEFORE disconnecting so every test file starts clean.
+  // We do this in afterAll (not afterEach) so state persists within a single file's
+  // sequential tests (e.g. auth register → login must stay in the same DB state).
+  const collections = mongoose.connection.collections;
+  for (const key in collections) {
+    await collections[key].deleteMany({}).catch(err => console.error(`Error clearing ${key}:`, err));
+  }
+
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect().catch(err => console.error('Disconnect error:', err));
+  }
+  if (mongoServer) {
+    await mongoServer.stop().catch(err => console.error('MongoServer stop error:', err));
+  }
+}, 10000);
