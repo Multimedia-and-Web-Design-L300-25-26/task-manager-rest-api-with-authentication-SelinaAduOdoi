@@ -1,15 +1,18 @@
 import mongoose from "mongoose";
 
 const connectDB = async () => {
-  try {
+  const mongoUri = process.env.MONGO_URI?.trim();
 
-    await mongoose.connect(process.env.MONGO_URI);
-
-    console.log("MongoDB connected");
-  } catch (error) {
-    console.error("Database connection failed");
-    process.exit(1);
+  if (!mongoUri) {
+    throw new Error("MONGO_URI is missing in .env");
   }
+
+  if (mongoUri.includes("<") || mongoUri.includes(">")) {
+    throw new Error("MONGO_URI still contains placeholder text. Replace it with your real MongoDB password.");
+  }
+
+  await mongoose.connect(mongoUri);
+  console.log("MongoDB connected");
 };
 
 export default connectDB;
